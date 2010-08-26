@@ -1,6 +1,7 @@
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
+import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.Map;
@@ -14,42 +15,53 @@ import edu.stanford.nlp.optimization.ScaledSGDMinimizer;
 
 public class ConditionalRandomField {
 	double[][] X,Y;		//	training dataset
+	BitSet[] YB;
 	double[] theta;		//	parameters
+	
 	int N,L,DistLabelNum;
 	Map<BitSet,Integer> map=new HashMap<BitSet,Integer>();
-
-	
+	ArrayList<double[]> labelsetLst;
+	//	O(D*L)
 	ConditionalRandomField(double[][] X,double[][] Y){
 		this.X=X;
 		this.Y=Y;
 		N=X[0].length;
 		L=Y[0].length;
+		YB=new BitSet[Y.length];
 		DistLabelNum=0;
-		BitSet tb;
+		labelsetLst=new ArrayList<double[]>();
 		for(int i=0;i<Y.length;i++){
-			tb=toBitSet(Y[i]);
-			if(!map.containsKey(tb)){
-				map.put(tb, DistLabelNum++);
+			YB[i]=toBitSet(Y[i]);
+			if(!map.containsKey(YB[i])){
+				map.put(YB[i], DistLabelNum++);
+				labelsetLst.add(Y[i]);
 			}
 		}
+		
 		theta=new double[N*L+DistLabelNum];
 	}
+	
+	//O(L*N+D)
 	private static void initialize(double[] w){
 		for(int i=0;i<w.length;i++)
 			w[i]=Math.random()*0.001;
 	}
 	
+	//O(G(LN+L^2D))
 	public void train(){
-		System.out.println("start training...");
 		CGMinimizer opt=new CGMinimizer(false);
 		NLikelihood func=new NLikelihood();
 
-		initialize(theta);
-		
-		theta=opt.minimize(func, 1.e-2, theta,10);
-		
-		
-		System.out.println("training finished");
+	//	initialize(theta);
+		long st=System.currentTimeMillis();
+		theta=opt.minimize(func, 1.e-2, theta); 
+		long time_cost=System.currentTimeMillis()-st;
+		System.out.println(time_cost/1000.0 + " secs");
+		//200 3 3: 0.5 sec
+		//200 6 3: 1.0 sec
+		//200 6 6: 26  sec
+		//100 6 6: 21 sec
+		//100 10 10
 	}
 	
 	private void test(double[][] X, double[][] Y) {
@@ -61,69 +73,39 @@ public class ConditionalRandomField {
 		System.out.printf("Accuracy: %f\n",correct*1.0/Y.length);
 	}
 	
+	//O(DNL)
 	private boolean predict(double[] x,double[] y) {
 		double max_p=0.0,p;
-		BitSet pred1 = null,pred2,pred;
-
-		/*
-		double[] ans = null;
-		pred=new BitSet(L);
-		for(int i=0;i<(1<<L);i++){
-			for(int j=0;j<L;j++)
-				if((i & (1<<j))!=0){
-					pred.set(j,true);
-				}else{
-					pred.set(j,false);
-				}
-			double[] ty=toArray(pred);
-			p=P_Y(theta,x,ty);
-			System.out.printf("%d %f\n",i,p);
-			if(p>max_p){
-				max_p=p;
-				
-				ans=ty;
-			}
-		}
-		System.out.println(max_p);
-		*/
+		double[] pred1 = null,pred2,pred;
 		
-		for(BitSet b:map.keySet()){
-			p=P_Y(theta,x,toArray(b));
-			//System.out.println(p);
+		double[] xw_buf=createXWBuf(theta,x);
+		
+		for(int j=0;j<labelsetLst.size();j++){
+			p=P_Y(theta,x,labelsetLst.get(j),xw_buf);
 			if(p>max_p){
 				max_p=p;
-				pred1=b;
+				pred1=labelsetLst.get(j);
 			}
 		}
-		pred2=new BitSet(L);
+		pred2=new double[L];
 		for(int l=0;l<L;l++){
-			if(xw(theta,x,l)>=0){
-				pred2.set(l);
+			if(xw_buf[l]>=0){
+				pred2[l]=1.0;
 			}
 		}
-		if(max_p > P_Y(theta,x,toArray(pred2))){
+		if(max_p > P_Y(theta,x,pred2,xw_buf)){
 			//	pred 1 is better
 			pred=pred1;
-			for(int i=0;i<L;i++)
-				System.out.print(pred1.get(i)?"1 ":"0 ");
-			System.out.println();
 		}else{
 			//	pred 2 is better
 			pred=pred2;
-			for(int i=0;i<L;i++)
-				System.out.print(pred2.get(i)?"1 ":"0 ");
-			System.out.println();
 		}
-		
-		
-		return pred.equals(toBitSet(y));
-	}
-	private double[] toArray(BitSet b) {
-		double[] res=new double[L];
 		for(int i=0;i<L;i++)
-			res[i]=b.get(i)?1.0:0.0;
-		return res;
+			System.out.print(pred[i]==1.0?"1 ":"0 ");
+		System.out.println();
+		return sameLabels(pred,y);
 	}
+	
 	private BitSet toBitSet(double[] y){
 		BitSet res=new BitSet(y.length);
 		for(int i=0;i<y.length;i++)
@@ -181,6 +163,7 @@ public class ConditionalRandomField {
 		return new Pair(x, y);
 	}
 	
+	/*
 	private double getA_li(double[] theta,int l,int i){
 		return theta[l*N+i];
 	}
@@ -194,34 +177,10 @@ public class ConditionalRandomField {
 	private void increaseB_j(double[] theta,int j,double v){
 		theta[L*N+j]+=v;
 	}
+	*/
 	
-	private double F(double[] theta,double[] x,double[] y){
-		double res=0.0;
-		for(int l=0;l<L;l++)
-			if(y[l]==1.0){
-				res+=xw(theta,x,l);
-			}
-		return res;
-	}
-	private double G(double[] theta,double[] y){
-		int j=getIdx(y);
-		//System.out.println(j);
-		return j==-1?0:getB_j(theta,j);
-	}
 	/**
-	 * @return P(y|x)
-	 * */
-	private double P_Y(double[] theta, double[] x,double[] y) {
-		return Math.exp(F(theta,x,y)+G(theta,y))/Z(theta,x);
-	}
-	private double xw(double[] theta,double[] x,int l){
-		double res=0.0;
-		for(int i=0;i<N;i++)
-			res+=x[i]*getA_li(theta,l,i);
-		return res;
-	}
-	
-	/*
+	 *  O(1)
 	 * 	return the index of the label combination.
 	 *  If this y does not appear in training set, then return -1;
 	 * */
@@ -230,128 +189,144 @@ public class ConditionalRandomField {
 		return res==null?-1:res;
 	}
 	
-	//	correct
-	private double Z(double[] theta,double[] x){
-		double res=1.0;
-		for(int l=0;l<L;l++)
-			res*=1+Math.exp(xw(theta,x,l));
-/*
-		double t=0.0;
-		double[] y=new double[L];
-		for(int i=0;i<(1<<L);i++){
-			for(int j=0;j<L;j++)
-				if((i & (1<<j))!=0){
-					y[j]=1.0;
-				}else{
-					y[j]=0.0;
-				}
-			t+=Math.exp(F(theta,x,y)+G(theta,y));
-		}
-*/
-		for(BitSet b:map.keySet()){
-			double[] y=toArray(b);
-			double tf=F(theta,x,y);
-			res+=Math.exp(tf+G(theta,y));
-			res-=Math.exp(tf);
-		}
+	//O(L)
+	private double G(double[] theta,double[] y){
+		int j=getIdx(y);
+		return j==-1?0:theta[L*N+j];//getB_j(theta,j)
+	}
+	
+	//O(1)
+	//j is the key of corresponding y in labelsetLst
+	private double G(double[] theta,int j) {
+		return theta[L*N+j];//getB_j(theta,j);
+	}
+
+	//O(L)
+	private double F(double[] y, double[] xw_buf) {
+		double res=0.0;
+		for(int i=0;i<L;i++)
+			if(y[i]==1.0)
+				res+=xw_buf[i];
+		return res;
+	}
+
+	/**
+	 * O(NL)
+	 * @return P(y|x)
+	 * */
+	private double P_Y(double[] theta, double[] x,double[] y,double[] xw_buf) {
+		return Math.exp(F(y,xw_buf)+G(theta,y))/Z(theta,x,xw_buf);
+	}
+	
+	//O(N)
+	private double xw(double[] theta,double[] x,int l){
+		double res=0.0;
+		for(int i=0;i<N;i++)
+			res+=x[i]*theta[l*N+i];//res+=x[i]*getA_li(theta,l,i);
 		return res;
 	}
 	
+
+	//	O(LD)
+	private double Z(double[] theta,double[] x,double[] xw_buf){
+		double res=1.0;
+		double[] y;
+		
+		for(int l=0;l<L;l++)
+			res*=1+Math.exp(xw_buf[l]);
+
+		for(int j=0;j<labelsetLst.size();j++){
+			y=labelsetLst.get(j);
+			res+=Math.exp(F(y,xw_buf))*(Math.exp(G(theta,j))-1);
+		}
+		return res;
+	}
+
 	/**
-	 * correct
+	 * O(LD)
 	 * @return P(Y_l==1 | x)
 	 * */
-	private double P_Yl(double[] theta, double[] x, int l) {
-		double res=Math.exp(xw(theta,x,l));
-		for(int tl=0;tl<L;tl++)
-			if(tl!=l)
-				res*=1+Math.exp(xw(theta,x,tl));
-		for(BitSet b:map.keySet()){
-			if(b.get(l)==false)continue;
-			double[] y=toArray(b);
-			double tf=F(theta,x,y);
-			res+=Math.exp(tf+G(theta,y));
-			res-=Math.exp(tf);
+	private double P_Yl(double[] theta, double[] x, int l,double[] xw_buf) {	
+		double res=Math.exp(xw_buf[l]);
+		
+		for(int tl=0;tl<L;tl++){
+			if(tl==l)
+				continue;
+			else
+				res*=1+Math.exp(xw_buf[tl]);
 		}
-		res/=Z(theta,x);
 		
-		/*
-		double t_res=0;
-		double[] ty=new double[L];
-		for(int i=0;i<(1<<L);i++)
-			if((i & (1<<l))!=0){
-				for(int j=0;j<L;j++)
-					if((i & (1<<j))!=0)
-						ty[j]=1.0;
-					else
-						ty[j]=0.0;
-				t_res+=P_Y(theta,x,ty);
-			}
-		System.out.println(res+" "+t_res);
-		*/
-		
-		return res;
+		double[] y;
+
+		for(int j=0;j<labelsetLst.size();j++){
+			y=labelsetLst.get(j);
+			if(y[l]==0.0)continue;
+			res+=Math.exp(F(y,xw_buf))*(Math.exp(G(theta,j))-1);
+		}
+		return res/Z(theta,x,xw_buf);
 	}
 	
+	//O(L)
 	private boolean sameLabels(double[] y1, double[] y2) {
 		int len=y1.length;
-		if(len!=y2.length)
-			try {
-				throw new Exception("tow label sets not compatible");
-			} catch (Exception e) {
-				e.printStackTrace();
-			}
+		
 		for(int i=0;i<len;i++)
 			if(y1[i]!=y2[i])
 				return false;
 		return true;
 	}
 	
-	
+	//O(LN)
+	double[] createXWBuf(double[] theta,double[] x){
+		double[] xw_buf=new double[L];	
+		for(int l=0;l<L;l++)
+			xw_buf[l]=xw(theta,x,l);
+		return xw_buf;
+	}
 	/*
+	 *
 	 * 	negative likelihood function class, which is to minimized
 	 * */
 	class NLikelihood implements DiffFunction{
 		
+		// O(D^3L)
 		@Override
 		public double[] derivativeAt(double[] theta) {
 			double[] res=new double[theta.length];
-			
 			for(int idx=0;idx<X.length;idx++){
 				double[] x=X[idx],y=Y[idx];
+				double[] xw_buf=createXWBuf(theta,x);
+				//assuming theta never changes when this function is running
+	
 				for(int l=0;l<L;l++){
-					for(int i=0;i<N;i++)
-						increaseA_li(res, l, i, x[i]*(y[l]==1.0?1.0:0.0 - P_Yl(theta,x,l)));
+					double temp=(y[l]==1.0?1.0:0.0) - P_Yl(theta,x,l,xw_buf);
+					//independent from i
+					
+					for(int i=0;i<N;i++){
+						double delta=x[i]*temp;
+						res[l*N+i]+=delta;//increaseA_li(res, l, i, delta);
+					}
 				}
-				for(BitSet b:map.keySet()){
-					int j=map.get(b);
-					increaseB_j(res, j, sameLabels(y,toArray(b))?1.0:0.0 - P_Y(theta,x,toArray(b)));
+				
+				for(int j=0;j<labelsetLst.size();j++){
+					double[] ty=labelsetLst.get(j);
+					double delta=(sameLabels(y,ty)?1.0:0.0) - P_Y(theta,x,ty,xw_buf);
+					res[L*N+j]+=delta;//increaseB_j(res, j, delta);
 				}
 			}
 			for(int i=0;i<res.length;i++)
 				res[i]=-res[i];			//negative likelihood, so negate derivative 
-
 			
-			
-			double[] t=theta.clone(),t_res=new double[theta.length];
+			/*
+			double[] t=theta.clone();
 			double delta=1e-3;
-			for(int i=0;i<theta.length;i++){
+			for(int i=0;i<res.length;i++){
 				t[i]+=delta;
-				t_res[i]=-(valueAt(t)-valueAt(theta))/delta;
+				res[i]=(this.valueAt(t)-this.valueAt(theta))/delta;
 				t[i]-=delta;
 			}
-
-			System.out.println();
-			printArray(t_res);
-			printArray(res);
-			
+			*/
 			return res;
-		}
-		
-		private void printArray(double[] res) {
-			for(int i=0;i<res.length;i++)
-				System.out.print(res[i]+" ");
-			System.out.println();
 		}
 
 		@Override
@@ -359,17 +334,19 @@ public class ConditionalRandomField {
 			return N*L+DistLabelNum;
 		}
 
+		// O(DL(D+N))
 		@Override
 		public double valueAt(double[] theta) {
 			double res=0.0;
 			for(int i=0;i<X.length;i++){
-				res+=F(theta,X[i],Y[i])+G(theta,Y[i])-Math.log(Z(theta,X[i]));
+				double[] xw_buf=createXWBuf(theta,X[i]);
+				res+=F(Y[i],xw_buf)+G(theta,Y[i])-Math.log(Z(theta,X[i],xw_buf));
 			}
-			//System.out.println(-res);
 			return -res;	//negative likelihood
 		}
 		
 	}
+	
 	public static void main(String[] args){
 		if(args.length!=2){
 			System.err.printf("Two parameters required:\n"
