@@ -4,6 +4,11 @@ Microaverage F-measure: 0.597728162946
 Macroaverage F-measure: 0.598297240429
 
 conditional random field:
-Exact match ratio: 0.220283533261
-Microaverage F-measure: 0.61179007908
-Macroaverage F-measure: 0.608615110851
+Exact match ratio: 0.237731733915
+Microaverage F-measure: 0.615829418142
+Macroaverage F-measure: 0.614690951019
+
+marginal conditional random field:
+Exact match ratio: 0.185387131952
+Microaverage F-measure: 0.604468835751
+Macroaverage F-measure: 0.604559117533

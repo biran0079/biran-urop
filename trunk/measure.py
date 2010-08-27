@@ -91,7 +91,7 @@ print
 print "conditional random field:"
 measure(ans_pred,crf_pred,labels);
 print
-print "conditional random field binary:"
+print "marginal conditional random field:"
 measure(ans_pred,crf_bin_pred,labels);
 
 
