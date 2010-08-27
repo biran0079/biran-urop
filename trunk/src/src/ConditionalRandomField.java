@@ -44,7 +44,7 @@ public class ConditionalRandomField {
 	//O(L*N+D)
 	private static void initialize(double[] w){
 		for(int i=0;i<w.length;i++)
-			w[i]=Math.random()*0.001;
+			w[i]=Math.random()-0.5;
 	}
 	
 	//O(G(LN+L^2D))
@@ -52,9 +52,9 @@ public class ConditionalRandomField {
 		CGMinimizer opt=new CGMinimizer(false);
 		NLikelihood func=new NLikelihood();
 
-	//	initialize(theta);
+		initialize(theta);
 		long st=System.currentTimeMillis();
-		theta=opt.minimize(func, 1.e-2, theta); 
+		theta=opt.minimize(func, 1.e-3, theta); 
 		long time_cost=System.currentTimeMillis()-st;
 		System.out.println(time_cost/1000.0 + " secs");
 		//200 3 3: 0.5 sec
@@ -77,8 +77,9 @@ public class ConditionalRandomField {
 	private boolean predict(double[] x,double[] y) {
 		double max_p=0.0,p;
 		double[] pred1 = null,pred2,pred;
-		
 		double[] xw_buf=createXWBuf(theta,x);
+		
+		
 		
 		for(int j=0;j<labelsetLst.size();j++){
 			p=P_Y(theta,x,labelsetLst.get(j),xw_buf);
@@ -87,12 +88,14 @@ public class ConditionalRandomField {
 				pred1=labelsetLst.get(j);
 			}
 		}
+		
 		pred2=new double[L];
 		for(int l=0;l<L;l++){
 			if(xw_buf[l]>=0){
 				pred2[l]=1.0;
 			}
 		}
+		
 		if(max_p > P_Y(theta,x,pred2,xw_buf)){
 			//	pred 1 is better
 			pred=pred1;
@@ -100,6 +103,7 @@ public class ConditionalRandomField {
 			//	pred 2 is better
 			pred=pred2;
 		}
+		
 		for(int i=0;i<L;i++)
 			System.out.print(pred[i]==1.0?"1 ":"0 ");
 		System.out.println();
