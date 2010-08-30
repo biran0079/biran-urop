@@ -12,7 +12,7 @@ import edu.stanford.nlp.optimization.QNMinimizer;
 import edu.stanford.nlp.optimization.SGDMinimizer;
 import edu.stanford.nlp.optimization.ScaledSGDMinimizer;
 
-public class CRFBin {
+public class CRFMarginal {
 	double[][] X, Y; // training dataset
 	BitSet[] YB;
 	double[] theta; // parameters
@@ -22,7 +22,7 @@ public class CRFBin {
 	ArrayList<double[]> labelsetLst;
 
 	// O(D*L)
-	CRFBin(double[][] X, double[][] Y) {
+	CRFMarginal(double[][] X, double[][] Y) {
 		this.X = X;
 		this.Y = Y;
 		N = X[0].length;
@@ -343,7 +343,7 @@ public class CRFBin {
 		}
 		train_x = t.first;
 		train_y = t.second;
-		CRFBin crf = new CRFBin(train_x, train_y);
+		CRFMarginal crf = new CRFMarginal(train_x, train_y);
 		crf.train();
 		try {
 			t = read_data(test_file);

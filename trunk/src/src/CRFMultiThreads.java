@@ -9,11 +9,7 @@ import java.util.Map;
 
 import edu.stanford.nlp.optimization.CGMinimizer;
 import edu.stanford.nlp.optimization.DiffFunction;
-import edu.stanford.nlp.optimization.QNMinimizer;
-import edu.stanford.nlp.optimization.SGDMinimizer;
-import edu.stanford.nlp.optimization.ScaledSGDMinimizer;
-
-public class ConditionalRandomField {
+public class CRFMultiThreads {
 	double[][] X,Y;		//	training dataset
 	BitSet[] YB;
 	double[] theta;		//	parameters
@@ -22,7 +18,7 @@ public class ConditionalRandomField {
 	Map<BitSet,Integer> map=new HashMap<BitSet,Integer>();
 	ArrayList<double[]> labelsetLst;
 	//	O(D*L)
-	ConditionalRandomField(double[][] X,double[][] Y){
+	CRFMultiThreads(double[][] X,double[][] Y){
 		this.X=X;
 		this.Y=Y;
 		N=X[0].length;
@@ -52,9 +48,9 @@ public class ConditionalRandomField {
 		CGMinimizer opt=new CGMinimizer(false);
 		NLikelihood func=new NLikelihood();
 
-		initialize(theta);
+		//initialize(theta);
 		long st=System.currentTimeMillis();
-		theta=opt.minimize(func, 1.e-3, theta); 
+		theta=opt.minimize(func, 1.e-3, theta,1); 
 		long time_cost=System.currentTimeMillis()-st;
 		System.out.println(time_cost/1000.0 + " secs");
 		//200 3 3: 0.5 sec
@@ -104,8 +100,10 @@ public class ConditionalRandomField {
 			pred=pred2;
 		}
 		
-		for(int i=0;i<L;i++)
-			System.out.print(pred[i]==1.0?"1 ":"0 ");
+		for(int i=0;i<L;i++){
+			if(i!=0)System.out.print(' ');
+			System.out.print(pred[i]==1.0?"1":"0");
+		}
 		System.out.println();
 		return sameLabels(pred,y);
 	}
@@ -287,49 +285,87 @@ public class ConditionalRandomField {
 			xw_buf[l]=xw(theta,x,l);
 		return xw_buf;
 	}
+	
+	
+
 	/*
 	 *
 	 * 	negative likelihood function class, which is to minimized
 	 * */
 	class NLikelihood implements DiffFunction{
 		
+		class DerivativeAThread extends Thread{
+			double[] x,y,xw_buf,res,theta;
+			DerivativeAThread(double[] theta,double[] x,double[] y,double[] xw_buf,double[] res){
+				this.x=x;
+				this.y=y;
+				this.theta=theta;
+				this.xw_buf=xw_buf;
+				this.res=res;
+			}
+			@Override
+			public void run(){
+				for(int l=0;l<L;l++){
+					double temp=(y[l]==1.0?1.0:0.0) - P_Yl(theta,x,l,xw_buf);
+					for(int i=0;i<N;i++){
+						double delta=x[i]*temp;
+						res[l*N+i]+=delta;
+					}
+				}
+			}
+		}
+		class DerivativeBThread extends Thread{
+			double[] x,y,xw_buf,res,theta;
+			DerivativeBThread(double[] theta,double[] x,double[] y,double[] xw_buf,double[] res){
+				this.x=x;
+				this.y=y;
+				this.theta=theta;
+				this.xw_buf=xw_buf;
+				this.res=res;
+			}
+			@Override
+			public void run(){
+				for(int j=0;j<labelsetLst.size();j++){
+					double[] ty=labelsetLst.get(j);
+					double delta=(sameLabels(y,ty)?1.0:0.0) - P_Y(theta,x,ty,xw_buf);
+					res[L*N+j]+=delta;
+				}
+			}
+		}
+	
+		
+		
 		// O(D^3L)
 		@Override
 		public double[] derivativeAt(double[] theta) {
 			double[] res=new double[theta.length];
+			double[] theta_cp=theta.clone();
+			DerivativeAThread[] at=new DerivativeAThread[X.length];
+			DerivativeBThread[] bt=new DerivativeBThread[X.length];
+			double[][] tres=new double[X.length][res.length];
 			for(int idx=0;idx<X.length;idx++){
 				double[] x=X[idx],y=Y[idx];
 				double[] xw_buf=createXWBuf(theta,x);
 				//assuming theta never changes when this function is running
-	
-				for(int l=0;l<L;l++){
-					double temp=(y[l]==1.0?1.0:0.0) - P_Yl(theta,x,l,xw_buf);
-					//independent from i
-					
-					for(int i=0;i<N;i++){
-						double delta=x[i]*temp;
-						res[l*N+i]+=delta;//increaseA_li(res, l, i, delta);
-					}
-				}
-				
-				for(int j=0;j<labelsetLst.size();j++){
-					double[] ty=labelsetLst.get(j);
-					double delta=(sameLabels(y,ty)?1.0:0.0) - P_Y(theta,x,ty,xw_buf);
-					res[L*N+j]+=delta;//increaseB_j(res, j, delta);
+
+				at[idx]=new DerivativeAThread(theta_cp,x,y,xw_buf,tres[idx]);
+				at[idx].start();
+				bt[idx]=new DerivativeBThread(theta_cp,x,y,xw_buf,tres[idx]);
+				bt[idx].start();
+			}
+			for(int idx=0;idx<X.length;idx++){
+				try {
+					at[idx].join();
+					bt[idx].join();
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
 				}
 			}
-			for(int i=0;i<res.length;i++)
-				res[i]=-res[i];			//negative likelihood, so negate derivative 
-			
-			/*
-			double[] t=theta.clone();
-			double delta=1e-3;
-			for(int i=0;i<res.length;i++){
-				t[i]+=delta;
-				res[i]=(this.valueAt(t)-this.valueAt(theta))/delta;
-				t[i]-=delta;
+			for(int idx=0;idx<X.length;idx++){
+				for(int j=0;j<res.length;j++)
+					res[j]-=tres[idx][j];
 			}
-			*/
 			return res;
 		}
 
@@ -344,13 +380,16 @@ public class ConditionalRandomField {
 			double res=0.0;
 			for(int i=0;i<X.length;i++){
 				double[] xw_buf=createXWBuf(theta,X[i]);
-				res+=F(Y[i],xw_buf)+G(theta,Y[i])-Math.log(Z(theta,X[i],xw_buf));
+	
+				res-=F(Y[i],xw_buf)+G(theta,Y[i])-Math.log(Z(theta,X[i],xw_buf));
+				
 			}
-			return -res;	//negative likelihood
+			return res;	//negative likelihood
 		}
 		
 	}
 	
+
 	public static void main(String[] args){
 		if(args.length!=2){
 			System.err.printf("Two parameters required:\n"
@@ -370,7 +409,7 @@ public class ConditionalRandomField {
 		}
 		train_x=t.first;
 		train_y=t.second;
-		ConditionalRandomField crf=new ConditionalRandomField(train_x,train_y);
+		CRFMultiThreads crf=new CRFMultiThreads(train_x,train_y);
 		crf.train();
 		try {
 			t=read_data(test_file);
