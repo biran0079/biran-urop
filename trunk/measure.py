@@ -71,13 +71,15 @@ assert sys.argv.__len__()==2,"one argument required"
 name=sys.argv[1]
 lr=file(name+".test.lr.pred")
 crf=file(name+".test.crf.pred")
-crf_bin=file(name+".test.crf_bin.pred")
+crf_marginal=file(name+".test.crf_marginal.pred")
+cml=file(name+".test.cml.pred")
 ans=file(name+".test.pred")
 
 ans_pred=read_label(ans)
 lr_pred=read_label(lr)
 crf_pred=read_label(crf)
-crf_bin_pred=read_label(crf_bin)
+crf_marginal_pred=read_label(crf_marginal)
+cml_pred=read_label(cml)
 labels=range(ans_pred[0].__len__())
 
 for line in lr:
@@ -92,6 +94,9 @@ print "conditional random field:"
 measure(ans_pred,crf_pred,labels);
 print
 print "marginal conditional random field:"
-measure(ans_pred,crf_bin_pred,labels);
+measure(ans_pred,crf_marginal_pred,labels);
+print
+print "CML:"
+measure(ans_pred,cml_pred,labels);
 
 

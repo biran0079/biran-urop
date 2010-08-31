@@ -12,3 +12,8 @@ marginal conditional random field:
 Exact match ratio: 0.642140468227
 Microaverage F-measure: 0.8
 Macroaverage F-measure: 0.801840248142
+
+CML:
+Exact match ratio: 0.689799331104
+Microaverage F-measure: 0.798975672215
+Macroaverage F-measure: 0.802253532244
