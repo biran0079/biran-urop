@@ -10,7 +10,7 @@ import edu.stanford.nlp.optimization.DiffFunction;
 public class CRFMultiThreads extends MultiLabelClassifier {
 	double[][] X, Y; // training dataset
 	BitSet[] YB;
-	double[] theta; 
+	double[] theta; 	
 
 	int N, L, DistLabelNum;
 	Map<BitSet, Integer> map = new HashMap<BitSet, Integer>();
