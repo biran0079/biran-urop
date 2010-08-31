@@ -1,18 +1,15 @@
-import java.io.BufferedReader;
+
 import java.io.File;
-import java.io.FileReader;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.Map;
 
+
 import edu.stanford.nlp.optimization.CGMinimizer;
 import edu.stanford.nlp.optimization.DiffFunction;
-import edu.stanford.nlp.optimization.QNMinimizer;
-import edu.stanford.nlp.optimization.SGDMinimizer;
-import edu.stanford.nlp.optimization.ScaledSGDMinimizer;
 
-public class CRFMarginal {
+public class CRFMarginal extends MultiLabelClassifier{
 	double[][] X, Y; // training dataset
 	BitSet[] YB;
 	double[] theta; // parameters
@@ -97,62 +94,9 @@ public class CRFMarginal {
 		return res;
 	}
 
-	public static class Pair {
-		double[][] first;
-		double[][] second;
 
-		Pair(double[][] x, double[][] y) {
-			this.first = x;
-			this.second = y;
-		}
-	};
 
-	/**
-	 * read dataset from a text file. File Format: Line 1: two integers D,N,L
-	 * which are number of instances in dataset, dimension of feature vector,
-	 * and number of features. Line 2-N+1 : N+L double values first N values are
-	 * features, the last L values are the label, which are either 0.0 or 1.0
-	 * 
-	 * @param file
-	 *            : the dataset file
-	 * @throws Exception
-	 */
-	public static Pair read_data(File file) throws Exception {
-		int N, D, L;
 
-		BufferedReader in = new BufferedReader(new FileReader(file));
-
-		String[] ss = in.readLine().split(" ");
-		D = Integer.valueOf(ss[0]); // # of instances
-		N = Integer.valueOf(ss[1]); // # of features in each instance
-		L = Integer.valueOf(ss[2]); // # if labels
-		double[][] x = new double[D][N + 1];
-		double[][] y = new double[D][L];
-		for (int i = 0; i < D; i++) {
-			ss = in.readLine().split(" ");
-			for (int j = 0; j < N; j++) {
-				x[i][j] = Double.valueOf(ss[j]);
-			}
-			x[i][N] = 1.0;
-			for (int j = N; j < N + L; j++) {
-				y[i][j - N] = Double.valueOf(ss[j]);
-				if (y[i][j - N] != 0.0 && y[i][j - N] != 1.0)
-					throw new Exception(
-							"invalid label value: only 0.0 and 1.0 is allowed");
-			}
-		}
-		in.close();
-		return new Pair(x, y);
-	}
-
-	/*
-	 * private double getA_li(double[] theta,int l,int i){ return theta[l*N+i];
-	 * } private double getB_j(double[] theta,int j){ return theta[L*N+j]; }
-	 * 
-	 * private void increaseA_li(double[] theta,int l,int i,double v){
-	 * theta[l*N+i]+=v; } private void increaseB_j(double[] theta,int j,double
-	 * v){ theta[L*N+j]+=v; }
-	 */
 
 	/**
 	 * O(1) return the index of the label combination. If this y does not appear
@@ -242,15 +186,7 @@ public class CRFMarginal {
 		return res / Z(theta, x, xw_buf);
 	}
 
-	// O(L)
-	private boolean sameLabels(double[] y1, double[] y2) {
-		int len = y1.length;
 
-		for (int i = 0; i < len; i++)
-			if (y1[i] != y2[i])
-				return false;
-		return true;
-	}
 
 	// O(LN)
 	double[] createXWBuf(double[] theta, double[] x) {
@@ -265,46 +201,94 @@ public class CRFMarginal {
 	 * negative likelihood function class, which is to minimized
 	 */
 	class NLikelihood implements DiffFunction {
+		class DerivativeAThread extends Thread {
+			double[] x, y, xw_buf, res;
+			final double[] theta;
 
-		// O(D^3L)
-		@Override
-		public double[] derivativeAt(double[] theta) {
-			double[] res = new double[theta.length];
-			for (int idx = 0; idx < X.length; idx++) {
-				double[] x = X[idx], y = Y[idx];
-				double[] xw_buf = createXWBuf(theta, x);
-				// assuming theta never changes when this function is running
+			DerivativeAThread(double[] theta, double[] x, double[] y,
+					double[] xw_buf, double[] res) {
+				this.x = x;
+				this.y = y;
+				this.theta = theta;
+				this.xw_buf = xw_buf;
+				this.res = res;
+			}
 
+			@Override
+			public void run() {
 				for (int l = 0; l < L; l++) {
 					double temp = (y[l] == 1.0 ? 1.0 : 0.0)
 							- P_Yl(theta, x, l, xw_buf);
-					// independent from i
-
 					for (int i = 0; i < N; i++) {
 						double delta = x[i] * temp;
-						res[l * N + i] += delta;// increaseA_li(res, l, i,
-												// delta);
+						res[l * N + i] += delta;
 					}
 				}
+			}
+		}
 
+		class DerivativeBThread extends Thread {
+			double[] x, y, xw_buf, res;
+			final double[] theta;
+
+			DerivativeBThread(double[] theta, double[] x, double[] y,
+					double[] xw_buf, double[] res) {
+				this.x = x;
+				this.y = y;
+				this.theta = theta;
+				this.xw_buf = xw_buf;
+				this.res = res;
+			}
+
+			@Override
+			public void run() {
 				for (int j = 0; j < labelsetLst.size(); j++) {
 					double[] ty = labelsetLst.get(j);
 					double delta = (sameLabels(y, ty) ? 1.0 : 0.0)
 							- P_Y(theta, x, ty, xw_buf);
-					res[L * N + j] += delta;// increaseB_j(res, j, delta);
+					res[L * N + j] += delta;
 				}
 			}
-			for (int i = 0; i < res.length; i++)
-				res[i] = -res[i]; // negative likelihood, so negate derivative
+		}
+		// O(D^3L)
+		@Override
+		public double[] derivativeAt(double[] theta) {
+			double[] res = new double[theta.length];
+			double[][] tres = new double[X.length][theta.length];
+		
+			DerivativeAThread[] at = new DerivativeAThread[X.length];
+			DerivativeBThread[] bt = new DerivativeBThread[X.length];
+			
+			
+			for (int idx = 0; idx < X.length; idx++) {
+				double[] x = X[idx], y = Y[idx];
+				double[] xw_buf = createXWBuf(theta, x);
+				// assuming theta never changes when this function is running
+				
+				at[idx] = new DerivativeAThread(theta, x, y, xw_buf,
+						tres[idx]);
+				bt[idx] = new DerivativeBThread(theta, x, y, xw_buf,
+						tres[idx]);
 
-			/*
-			 * double[] t=theta.clone(); double delta=1e-3; for(int
-			 * i=0;i<res.length;i++){ t[i]+=delta;
-			 * res[i]=(this.valueAt(t)-this.valueAt(theta))/delta; t[i]-=delta;
-			 * }
-			 */
+				at[idx].start();
+				bt[idx].start();
+			}
+			for (int idx = 0; idx < X.length; idx++) {
+				try {
+					at[idx].join();
+					bt[idx].join();
+				} catch (InterruptedException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			}
+			for (int idx = 0; idx < X.length; idx++) {
+				for (int j = 0; j < res.length; j++)
+					res[j] -= tres[idx][j];
+			}
 			return res;
 		}
+
 
 		@Override
 		public int domainDimension() {

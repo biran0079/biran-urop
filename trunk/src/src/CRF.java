@@ -13,7 +13,7 @@ import edu.stanford.nlp.optimization.QNMinimizer;
 import edu.stanford.nlp.optimization.SGDMinimizer;
 import edu.stanford.nlp.optimization.ScaledSGDMinimizer;
 
-public class CRF {
+public class CRF extends MultiLabelClassifier{
 	double[][] X,Y;		//	training dataset
 	BitSet[] YB;
 	double[] theta;		//	parameters
@@ -41,12 +41,7 @@ public class CRF {
 		theta=new double[N*L+DistLabelNum];
 	}
 	
-	//O(L*N+D)
-	private static void initialize(double[] w){
-		for(int i=0;i<w.length;i++)
-			w[i]=Math.random()-0.5;
-	}
-	
+
 	//O(G(LN+L^2D))
 	public void train(){
 		CGMinimizer opt=new CGMinimizer(false);
@@ -54,14 +49,9 @@ public class CRF {
 
 		//initialize(theta);
 		long st=System.currentTimeMillis();
-		theta=opt.minimize(func, 1.e-3, theta,1); 
+		theta=opt.minimize(func, 1.e-3, theta); 
 		long time_cost=System.currentTimeMillis()-st;
 		System.out.println(time_cost/1000.0 + " secs");
-		//200 3 3: 0.5 sec
-		//200 6 3: 1.0 sec
-		//200 6 6: 26  sec
-		//100 6 6: 21 sec
-		//100 10 10
 	}
 	
 	private void test(double[][] X, double[][] Y) {
@@ -104,11 +94,7 @@ public class CRF {
 			pred=pred2;
 		}
 		
-		for(int i=0;i<L;i++){
-			if(i!=0)System.out.print(' ');
-			System.out.print(pred[i]==1.0?"1":"0");
-		}
-		System.out.println();
+		this.printPred(pred);
 		return sameLabels(pred,y);
 	}
 	
@@ -120,70 +106,6 @@ public class CRF {
 		return res;
 	}
 	
-	
-	public static class Pair {
-		double[][] first;
-		double[][] second;
-
-		Pair(double[][] x, double[][] y) {
-			this.first = x;
-			this.second = y;
-		}
-	};
-
-	/**
-	 * read dataset from a text file. File Format: Line 1: two integers D,N,L
-	 * which are number of instances in dataset, dimension of feature vector,
-	 * and number of features. Line 2-N+1 : N+L double values first N values are
-	 * features, the last L values are the label, which are either 0.0 or 1.0
-	 * 
-	 * @param file
-	 *            : the dataset file
-	 * @throws Exception
-	 */
-	public static Pair read_data(File file) throws Exception {
-		int N, D, L;
-
-		BufferedReader in = new BufferedReader(new FileReader(file));
-
-		String[] ss = in.readLine().split(" ");
-		D = Integer.valueOf(ss[0]); // # of instances
-		N = Integer.valueOf(ss[1]); // # of features in each instance
-		L = Integer.valueOf(ss[2]); // # if labels
-		double[][] x = new double[D][N + 1];
-		double[][] y = new double[D][L];
-		for (int i = 0; i < D; i++) {
-			ss = in.readLine().split(" ");
-			for (int j = 0; j < N; j++) {
-				x[i][j] = Double.valueOf(ss[j]);
-			}
-			x[i][N] = 1.0;
-			for (int j = N; j < N + L; j++) {
-				y[i][j - N] = Double.valueOf(ss[j]);
-				if (y[i][j - N] != 0.0 && y[i][j - N] != 1.0)
-					throw new Exception(
-							"invalid label value: only 0.0 and 1.0 is allowed");
-			}
-		}
-		in.close();
-		return new Pair(x, y);
-	}
-	
-	/*
-	private double getA_li(double[] theta,int l,int i){
-		return theta[l*N+i];
-	}
-	private double getB_j(double[] theta,int j){
-		return theta[L*N+j];
-	}
-	
-	private void increaseA_li(double[] theta,int l,int i,double v){
-		theta[l*N+i]+=v;
-	}
-	private void increaseB_j(double[] theta,int j,double v){
-		theta[L*N+j]+=v;
-	}
-	*/
 	
 	/**
 	 *  O(1)
@@ -271,17 +193,7 @@ public class CRF {
 		}
 		return res/Z(theta,x,xw_buf);
 	}
-	
-	//O(L)
-	private boolean sameLabels(double[] y1, double[] y2) {
-		int len=y1.length;
-		
-		for(int i=0;i<len;i++)
-			if(y1[i]!=y2[i])
-				return false;
-		return true;
-	}
-	
+
 	//O(LN)
 	double[] createXWBuf(double[] theta,double[] x){
 		double[] xw_buf=new double[L];	
