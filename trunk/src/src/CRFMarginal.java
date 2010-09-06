@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 
+
 import edu.stanford.nlp.optimization.CGMinimizer;
 import edu.stanford.nlp.optimization.DiffFunction;
 
@@ -38,11 +39,6 @@ public class CRFMarginal extends MultiLabelClassifier{
 		theta = new double[N * L + DistLabelNum];
 	}
 
-	// O(L*N+D)
-	private static void initialize(double[] w) {
-		for (int i = 0; i < w.length; i++)
-			w[i] = Math.random() - 0.5;
-	}
 
 	// O(G(LN+L^2D))
 	public void train() {
@@ -201,6 +197,9 @@ public class CRFMarginal extends MultiLabelClassifier{
 	 * negative likelihood function class, which is to minimized
 	 */
 	class NLikelihood implements DiffFunction {
+
+		final static int core_number = 2;
+
 		class DerivativeAThread extends Thread {
 			double[] x, y, xw_buf, res;
 			final double[] theta;
@@ -221,7 +220,7 @@ public class CRFMarginal extends MultiLabelClassifier{
 							- P_Yl(theta, x, l, xw_buf);
 					for (int i = 0; i < N; i++) {
 						double delta = x[i] * temp;
-						res[l * N + i] += delta;
+						res[l * N + i]= delta;
 					}
 				}
 			}
@@ -246,65 +245,66 @@ public class CRFMarginal extends MultiLabelClassifier{
 					double[] ty = labelsetLst.get(j);
 					double delta = (sameLabels(y, ty) ? 1.0 : 0.0)
 							- P_Y(theta, x, ty, xw_buf);
-					res[L * N + j] += delta;
+					res[L * N + j] = delta;
 				}
 			}
 		}
+
 		// O(D^3L)
 		@Override
 		public double[] derivativeAt(double[] theta) {
-			double[] res = new double[theta.length];
-			double[][] tres = new double[X.length][theta.length];
-		
-			DerivativeAThread[] at = new DerivativeAThread[X.length];
-			DerivativeBThread[] bt = new DerivativeBThread[X.length];
-			
-			
-			for (int idx = 0; idx < X.length; idx++) {
-				double[] x = X[idx], y = Y[idx];
-				double[] xw_buf = createXWBuf(theta, x);
-				// assuming theta never changes when this function is running
-				
-				at[idx] = new DerivativeAThread(theta, x, y, xw_buf,
-						tres[idx]);
-				bt[idx] = new DerivativeBThread(theta, x, y, xw_buf,
-						tres[idx]);
+			double[] res = new double[theta.length],x,y,xw_buf;
+			double[][] tres = new double[core_number][theta.length];
 
-				at[idx].start();
-				bt[idx].start();
-			}
-			for (int idx = 0; idx < X.length; idx++) {
-				try {
-					at[idx].join();
-					bt[idx].join();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
+			DerivativeAThread[] at = new DerivativeAThread[core_number];
+			DerivativeBThread[] bt = new DerivativeBThread[core_number];
+
+			for (int idx = 0; idx < X.length; idx += core_number) {
+				for (int i = 0; i < core_number && idx + i < X.length; i++) {
+					x = X[idx + i];
+					y = Y[idx + i];
+					xw_buf = createXWBuf(theta, x);
+					at[i] = new DerivativeAThread(theta, x, y, xw_buf, tres[i]);
+					bt[i] = new DerivativeBThread(theta, x, y, xw_buf, tres[i]);
+					at[i].start();
+					bt[i].start();
+				}
+				for (int i = 0; i < core_number && idx + i < X.length; i++) {
+					try {
+						at[i].join();
+						bt[i].join();
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					
+					for(int j=0;j<theta.length;j++){
+						res[j]-=tres[i][j];
+					}
 				}
 			}
-			for (int idx = 0; idx < X.length; idx++) {
-				for (int j = 0; j < res.length; j++)
-					res[j] -= tres[idx][j];
-			}
+		
 			return res;
 		}
 
-
 		@Override
 		public int domainDimension() {
-			return N * L + DistLabelNum;
+			return theta.length;
 		}
 
 		// O(DL(D+N))
 		@Override
 		public double valueAt(double[] theta) {
 			double res = 0.0;
+			double[] xw_buf;
 			for (int i = 0; i < X.length; i++) {
-				double[] xw_buf = createXWBuf(theta, X[i]);
-				res += F(Y[i], xw_buf) + G(theta, Y[i])
+				xw_buf = createXWBuf(theta, X[i]);
+
+				res -= F(Y[i], xw_buf) + G(theta, Y[i])
 						- Math.log(Z(theta, X[i], xw_buf));
+
 			}
-			return -res; // negative likelihood
+			return res; // negative likelihood
 		}
 
 	}

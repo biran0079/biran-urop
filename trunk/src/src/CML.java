@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 
+
 import edu.stanford.nlp.optimization.CGMinimizer;
 import edu.stanford.nlp.optimization.DiffFunction;
 
@@ -44,7 +45,7 @@ public class CML extends MultiLabelClassifier {
 
 		// initialize(theta);
 		long st = System.currentTimeMillis();
-		theta = opt.minimize(func, 1.e-3, theta);
+		theta = opt.minimize(func, 1.e-3, theta,100);
 		long time_cost = System.currentTimeMillis() - st;
 		System.out.println(time_cost / 1000.0 + " secs");
 	}
@@ -145,25 +146,32 @@ public class CML extends MultiLabelClassifier {
 
 	private double P_Yl(double[] theta, double[] x, int l, double[] xw_buf,
 			double[] gy_buf) {
-		double res = 0.0;
+		double[] y;
+		double up = 0.0,down=0.0,tem;
 		for (int i = 0; i < labelsetLst.size(); i++) {
-			double[] y = labelsetLst.get(i);
+			y = labelsetLst.get(i);
+			tem=Math.exp(F(i, xw_buf) + G(i, gy_buf));
 			if (y[l] == 1.0) {
-				res += Math.exp(F(i, xw_buf) + G(i, gy_buf));
+				up += tem;
 			}
+			down+=tem;
 		}
-		return res / Z(theta, x, xw_buf, gy_buf);
+		return up/down;
 	}
 
 	private double P_ijk(double[] theta, double[] x, int i, int j, int k,
 			double[] xw_buf, double[] gy_buf) {
-		double res = 0;
+		double[] y;
+		double up = 0.0,down=0.0,tem;
 		for (int idx = 0; idx < labelsetLst.size(); idx++) {
-			double[] y = labelsetLst.get(idx);
-			if ((int) y[i] * 2 + (int) y[j] == k)
-				res += Math.exp(F(idx, xw_buf) + G(idx, gy_buf));
+			y = labelsetLst.get(idx);
+			tem=Math.exp(F(idx, xw_buf) + G(idx, gy_buf));
+			if ((int) y[i] * 2 + (int) y[j] == k){
+				up += tem;
+			}
+			down+=tem;
 		}
-		return res / Z(theta, x, xw_buf, gy_buf);
+		return up/down;
 	}
 
 	/*
@@ -171,7 +179,9 @@ public class CML extends MultiLabelClassifier {
 	 * negative likelihood function class, which is to minimized
 	 */
 	class NLikelihood implements DiffFunction {
-
+		
+		final static int core_number=2;
+		
 		class DerivativeAThread extends Thread {
 			double[] x, y, res, xw_buf, gy_buf;
 			final double[] theta;
@@ -188,18 +198,19 @@ public class CML extends MultiLabelClassifier {
 
 			@Override
 			public void run() {
-				for (int l = 0; l < L; l++)
+				for (int l = 0; l < L; l++){
 					for (int i = 0; i < N; i++)
-						res[l * N + i] -= (y[l] - P_Yl(theta, x, l, xw_buf,
+						res[l * N + i] = (y[l] - P_Yl(theta, x, l, xw_buf,
 								gy_buf))
 								* x[i];
+				}
 			}
 		}
 
 		class DerivativeBThread extends Thread {
 			double[] x, y, xw_buf, gy_buf, res;
 			final double[] theta;
-
+			
 			DerivativeBThread(double[] theta, double[] x, double[] y,
 					double[] xw_buf, double[] gy_buf, double[] res) {
 				this.x = x;
@@ -216,7 +227,7 @@ public class CML extends MultiLabelClassifier {
 				for (int i = 0; i < L; i++)
 					for (int j = i + 1; j < L; j++) {
 						for (int k = 0; k < 4; k++) {
-							res[t_idx] -= ((int) y[i] * 2 + (int) y[j] == k ? 1.0
+							res[t_idx] = ((int) y[i] * 2 + (int) y[j] == k ? 1.0
 									: 0.0)
 									- P_ijk(theta, x, i, j, k, xw_buf, gy_buf);
 							t_idx++;
@@ -228,39 +239,36 @@ public class CML extends MultiLabelClassifier {
 		@Override
 		public double[] derivativeAt(double[] theta) {
 			double[] res = new double[theta.length], x, y, xw_buf;
-			double[][] tres = new double[X.length][theta.length];
+			double[][] tres = new double[core_number][theta.length];
 			double[] gy_buf = createGYBuf(theta);
 			
-			DerivativeAThread[] at = new DerivativeAThread[X.length];
-			DerivativeBThread[] bt = new DerivativeBThread[X.length];
+			DerivativeAThread[] at = new DerivativeAThread[core_number];
+			DerivativeBThread[] bt = new DerivativeBThread[core_number];
 			
-			
-			for (int idx = 0; idx < X.length; idx++) {
-				x = X[idx];
-				y = Y[idx];
-				xw_buf = createXWBuf(theta, x);
-				
-				at[idx] = new DerivativeAThread(theta, x, y, xw_buf,gy_buf,
-						tres[idx]);
-				bt[idx] = new DerivativeBThread(theta, x, y, xw_buf,gy_buf,
-						tres[idx]);
 
-				at[idx].start();
-				bt[idx].start();
-			}
-
-			for (int idx = 0; idx < X.length; idx++) {
-				try {
-					at[idx].join();
-					bt[idx].join();
-				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
+			for (int idx = 0; idx < X.length; idx += core_number) {
+				for (int i = 0; i < core_number && idx + i < X.length; i++) {
+					x = X[idx + i];
+					y = Y[idx + i];
+					xw_buf = createXWBuf(theta, x);
+					at[i] = new DerivativeAThread(theta, x, y, xw_buf, gy_buf,tres[i]);
+					bt[i] = new DerivativeBThread(theta, x, y, xw_buf, gy_buf,tres[i]);
+					at[i].start();
+					bt[i].start();
 				}
-			}
-			for (int idx = 0; idx < X.length; idx++) {
-				for (int j = 0; j < res.length; j++)
-					res[j] += tres[idx][j];
+				for (int i = 0; i < core_number && idx + i < X.length; i++) {
+					try {
+						at[i].join();
+						bt[i].join();
+					} catch (InterruptedException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					
+					for(int j=0;j<theta.length;j++){
+						res[j]-=tres[i][j];
+					}
+				}
 			}
 			return res;
 		}
