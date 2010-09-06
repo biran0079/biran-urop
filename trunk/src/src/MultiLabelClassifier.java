@@ -26,7 +26,7 @@ public class MultiLabelClassifier {
 				return false;
 		return true;
 	}
-	private void initialize(double[] w){
+	protected void initialize(double[] w){
 		for(int i=0;i<w.length;i++)
 			w[i]=Math.random()*0.001;
 	}
