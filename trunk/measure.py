@@ -83,9 +83,9 @@ def measure(__original, __predict, __labels):
 assert sys.argv.__len__()==2,"one argument required"
 name=sys.argv[1]
 
-ans_pred=read_label(file(name+".test.pred"))
-labels=range(len(ans_pred[0]))
+labels=range(file(name+".test.pred").readline().split().__len__())
 
+ans_pred=read_label(file(name+".test.pred"))
 
 lr_pred=read_label(file(name+".test.lr.pred"))
 print "logistic regression:"
