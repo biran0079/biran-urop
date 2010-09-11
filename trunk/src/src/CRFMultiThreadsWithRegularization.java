@@ -36,7 +36,7 @@ public class CRFMultiThreadsWithRegularization extends MultiLabelClassifier {
 		theta = new double[N * L + DistLabelNum];
 	}
 
-	// O(G(LN+L^2D))
+	// O(GDL(Ld+N))
 	public void train() {
 		CGMinimizer opt = new CGMinimizer(false);
 		NLikelihood func = new NLikelihood();
