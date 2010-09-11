@@ -11,19 +11,27 @@ def read_label(file):
 	return res
 
 def measure(__original, __predict, __labels):
-	"""
-	Return exact match ratio, microaverage F-measure, and macroaverage F-measure.
-	"""
+
 	result = []
 	
 	# Exact Match Ratio
 	ratio = 0
+	hamming = 0
+	acc=0
 	for i in range(len(__predict)):
 		__original[i].sort()
 		__predict[i].sort()
+		soi=set(__original[i])
+		spi=set(__predict[i])
+		hamming+=len(soi ^ spi)
+		if len(soi | spi)==0:
+			acc+=1.0
+		else:
+			acc+=float(len(soi & spi))/float(len(soi | spi))
 		if(__original[i] == __predict[i]):
 			ratio = ratio+1
-
+	hamming=float(hamming)/(len(__labels)*len(__original))
+	acc=acc/float(len(__original))
 	result.append(float(ratio)/len(__predict))
 	
 	# Microaverage and Macroaverage F-measure
@@ -56,47 +64,49 @@ def measure(__original, __predict, __labels):
 		fp_sum = fp_sum + fp
 		fn_sum = fn_sum + fn
 
+
 	P = float(tp_sum)/float(tp_sum+fp_sum)
 	R = float(tp_sum)/float(tp_sum+fn_sum)
 
 	result.append(2*P*R/(P+R))
 	result.append(F/len(__labels))
 
+
 	print "Exact match ratio: %s" % result[0]
-	print "Microaverage F-measure: %s" % result[1]
-	print "Macroaverage F-measure: %s" % result[2]
+	print "Accuracy: %s" % acc
+	print "Precision: %s" % P
+	print "Recall: %s" % R
+	print "Hamming loss: %s" % hamming
+	print "F1-measure: %s" % result[1]
 
 
 assert sys.argv.__len__()==2,"one argument required"
 name=sys.argv[1]
-lr=file(name+".test.lr.pred")
-crf=file(name+".test.crf.pred")
-crf_marginal=file(name+".test.crf_marginal.pred")
-cml=file(name+".test.cml.pred")
-ans=file(name+".test.pred")
 
-ans_pred=read_label(ans)
-lr_pred=read_label(lr)
-crf_pred=read_label(crf)
-crf_marginal_pred=read_label(crf_marginal)
-cml_pred=read_label(cml)
-labels=range(ans_pred[0].__len__())
+ans_pred=read_label(file(name+".test.pred"))
+labels=range(len(ans_pred[0]))
 
-for line in lr:
-	lr_pred.append(line.split(" "));
-for line in crf:
-	crf_pred.append(line.split(" "));
 
+lr_pred=read_label(file(name+".test.lr.pred"))
 print "logistic regression:"
 measure(ans_pred,lr_pred,labels);
 print
+
+crf_pred=read_label(file(name+".test.crf.pred"))
 print "conditional random field:"
 measure(ans_pred,crf_pred,labels);
 print
+
+"""
+crf_marginal_pred=read_label(file(name+".test.crf_marginal.pred"))
 print "marginal conditional random field:"
 measure(ans_pred,crf_marginal_pred,labels);
 print
+
+
+cml_pred=read_label(file(name+".test.cml.pred"))
 print "CML:"
 measure(ans_pred,cml_pred,labels);
+"""
 
 

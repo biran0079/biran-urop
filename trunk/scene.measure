@@ -1,19 +1,16 @@
 logistic regression:
-Exact match ratio: 0.510869565217
-Microaverage F-measure: 0.7665317139
-Macroaverage F-measure: 0.766438406061
+Exact match ratio: 0.505852842809
+Accuracy: 0.571070234114
+Precision: 0.873015873016
+Recall: 0.689223057644
+Hamming loss: 0.310618729097
+F1-measure: 0.770308123249
 
 conditional random field:
-Exact match ratio: 0.675585284281
-Microaverage F-measure: 0.788659793814
-Macroaverage F-measure: 0.792096094015
+Exact match ratio: 0.678093645485
+Accuracy: 0.718366778149
+Precision: 0.80890052356
+Recall: 0.774436090226
+Hamming loss: 0.285535117057
+F1-measure: 0.791293213828
 
-marginal conditional random field:
-Exact match ratio: 0.642140468227
-Microaverage F-measure: 0.8
-Macroaverage F-measure: 0.801840248142
-
-CML:
-Exact match ratio: 0.689799331104
-Microaverage F-measure: 0.798975672215
-Macroaverage F-measure: 0.802253532244

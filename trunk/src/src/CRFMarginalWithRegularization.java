@@ -1,23 +1,25 @@
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.Map;
 
+
 import edu.stanford.nlp.optimization.CGMinimizer;
 import edu.stanford.nlp.optimization.DiffFunction;
 
-public class CRFMultiThreads extends MultiLabelClassifier {
+public class CRFMarginalWithRegularization extends MultiLabelClassifier{
 	double[][] X, Y; // training dataset
 	BitSet[] YB;
-	double[] theta;
+	double[] theta; // parameters
 
 	int N, L, DistLabelNum;
 	Map<BitSet, Integer> map = new HashMap<BitSet, Integer>();
 	ArrayList<double[]> labelsetLst;
 
 	// O(D*L)
-	CRFMultiThreads(double[][] X, double[][] Y) {
+	CRFMarginalWithRegularization(double[][] X, double[][] Y) {
 		this.X = X;
 		this.Y = Y;
 		N = X[0].length;
@@ -36,16 +38,22 @@ public class CRFMultiThreads extends MultiLabelClassifier {
 		theta = new double[N * L + DistLabelNum];
 	}
 
+
 	// O(G(LN+L^2D))
 	public void train() {
 		CGMinimizer opt = new CGMinimizer(false);
 		NLikelihood func = new NLikelihood();
 
-		// initialize(theta);
+		initialize(theta);
 		long st = System.currentTimeMillis();
-		theta = opt.minimize(func, 1e-3, theta);
+		theta = opt.minimize(func, 1.e-3, theta);
 		long time_cost = System.currentTimeMillis() - st;
 		System.out.println(time_cost / 1000.0 + " secs");
+		// 200 3 3: 0.5 sec
+		// 200 6 3: 1.0 sec
+		// 200 6 6: 26 sec
+		// 100 6 6: 21 sec
+		// 100 10 10
 	}
 
 	private void test(double[][] X, double[][] Y) {
@@ -59,34 +67,17 @@ public class CRFMultiThreads extends MultiLabelClassifier {
 
 	// O(DNL)
 	private boolean predict(double[] x, double[] y) {
-		double max_p = 0.0, p;
-		double[] pred1 = null, pred2, pred;
+		double[] pred;
 		double[] xw_buf = createXWBuf(theta, x);
+		pred = new double[L];
 
-		for (int j = 0; j < labelsetLst.size(); j++) {
-			p = P_Y(theta, x, labelsetLst.get(j), xw_buf);
-			if (p > max_p) {
-				max_p = p;
-				pred1 = labelsetLst.get(j);
-			}
-		}
-
-		pred2 = new double[L];
 		for (int l = 0; l < L; l++) {
-			if (xw_buf[l] >= 0) {
-				pred2[l] = 1.0;
-			}
+			pred[l] = P_Yl(theta, x, l, xw_buf) >= 0.5 ? 1.0 : 0.0;
 		}
 
-		if (max_p > P_Y(theta, x, pred2, xw_buf)) {
-			// pred 1 is better
-			pred = pred1;
-		} else {
-			// pred 2 is better
-			pred = pred2;
-		}
-
-		this.printPred(pred);
+		for (int i = 0; i < L; i++)
+			System.out.print(pred[i] == 1.0 ? "1 " : "0 ");
+		System.out.println();
 		return sameLabels(pred, y);
 	}
 
@@ -97,6 +88,10 @@ public class CRFMultiThreads extends MultiLabelClassifier {
 				res.set(i);
 		return res;
 	}
+
+
+
+
 
 	/**
 	 * O(1) return the index of the label combination. If this y does not appear
@@ -186,6 +181,8 @@ public class CRFMultiThreads extends MultiLabelClassifier {
 		return res / Z(theta, x, xw_buf);
 	}
 
+
+
 	// O(LN)
 	double[] createXWBuf(double[] theta, double[] x) {
 		double[] xw_buf = new double[L];
@@ -194,6 +191,7 @@ public class CRFMultiThreads extends MultiLabelClassifier {
 		return xw_buf;
 	}
 
+
 	/*
 	 * 
 	 * negative likelihood function class, which is to minimized
@@ -201,6 +199,7 @@ public class CRFMultiThreads extends MultiLabelClassifier {
 	class NLikelihood implements DiffFunction {
 
 		final static int core_number = 2;
+		double lambda=0.5;	//regularization
 
 		class DerivativeAThread extends Thread {
 			double[] x, y, xw_buf, res;
@@ -280,11 +279,14 @@ public class CRFMultiThreads extends MultiLabelClassifier {
 					}
 					
 					for(int j=0;j<theta.length;j++){
-						res[j]-=tres[i][j];
+						res[j]+=tres[i][j];
 					}
 				}
 			}
-		
+			
+			for(int j=0;j<theta.length;j++){
+				res[j]=-(res[j]-lambda*theta[j]);
+			}
 			return res;
 		}
 
@@ -300,14 +302,20 @@ public class CRFMultiThreads extends MultiLabelClassifier {
 			for (int i = 0; i < X.length; i++) {
 				double[] xw_buf = createXWBuf(theta, X[i]);
 
-				res -= F(Y[i], xw_buf) + G(theta, Y[i])
+				res += F(Y[i], xw_buf) + G(theta, Y[i])
 						- Math.log(Z(theta, X[i], xw_buf));
-
 			}
-			return res; // negative likelihood
+			double penalty=0.0;
+			for (int i = 0; i < theta.length; i++){
+				penalty+=theta[i]*theta[i];
+			}
+			penalty*=lambda/2.0;
+			res-=penalty;
+			return -res; // negative likelihood
 		}
 
 	}
+
 
 	public static void main(String[] args) {
 		if (args.length != 2) {
@@ -327,7 +335,7 @@ public class CRFMultiThreads extends MultiLabelClassifier {
 		}
 		train_x = t.first;
 		train_y = t.second;
-		CRFMultiThreads crf = new CRFMultiThreads(train_x, train_y);
+		CRFMarginalWithRegularization crf = new CRFMarginalWithRegularization(train_x, train_y);
 		crf.train();
 		try {
 			t = read_data(test_file);

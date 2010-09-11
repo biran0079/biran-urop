@@ -1,0 +1,15 @@
+logistic regression:
+Exact match ratio: 0.13298791019
+Microaverage F-measure: 0.146341463415
+Macroaverage F-measure: 0.0789473684211
+
+conditional random field:
+Exact match ratio: 0.165803108808
+Microaverage F-measure: 0.125
+Macroaverage F-measure: 0.285714285714
+
+marginal conditional random field:
+Exact match ratio: 0.157167530225
+Microaverage F-measure: 0.117647058824
+Macroaverage F-measure: 0.283333333333
+
